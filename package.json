@@ -1,0 +1,17 @@
+{
+  "name": "nikkei-explorer",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run build.ts --watch",
+    "build": "bun run build.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.7.0",
+    "@types/bun": "^1.1.0",
+    "@types/chrome": "^0.0.266"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

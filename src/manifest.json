@@ -1,0 +1,30 @@
+{
+	"name": "Nikkei Explorer",
+	"description": "My Extension",
+	"version": "1.0",
+	"manifest_version": 3,
+	"permissions": ["activeTab", "scripting", "storage"],
+	"options_page": "options.html",
+	"action": {
+		"default_popup": "popup.html"
+	},
+	"content_scripts": [
+		{
+			"matches": [
+				"https://member.rakuten-sec.co.jp/bv/app/info_jp_nikkei_telecom.do*",
+				"https://t21.nikkei.co.jp/*",
+				"<all_urls>"
+			],
+			"js": ["index.js"]
+		}
+	],
+	"commands": {
+		"_execute_action": {
+			"suggested_key": {
+				"default": "Ctrl+Shift+H",
+				"mac": "MacCtrl+Shift+H"
+			},
+			"description": "Run extension."
+		}
+	}
+}
