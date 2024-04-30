@@ -1,34 +1,34 @@
 import { rmSync, watch } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { Glob } from "bun";
 
-/** ソースコードのあるディレクトリ */
-const SRC = "src";
-/** 出力先ディレクトリ */
-const DIST = "dist";
-
-const cleanUp = async (dist: string) => {
-	// 出力先ディレクトリが存在しない場合は何もしない
-	if (!(await Bun.file(dist).exists())) return;
-
-	rmSync(dist, { recursive: true, force: true });
+const cleanUp = () => {
+	rmSync("dist", { recursive: true, force: true });
 };
 
 const copyStaticFiles = async () => {
-	const staticFiles = Array.from(new Glob(`${SRC}/*.{json,html,css}`).scanSync());
+	// 出力先ディレクトリが存在しなければ作成する
+	await mkdir("dist", { recursive: true });
+
+	const staticFiles = Array.from(new Glob("src/*.{json,html}").scanSync());
 	for (const staticFile of staticFiles) {
-		const path = staticFile.replace(SRC, DIST);
-		await Bun.write(path, Bun.file(staticFile));
+		const dest = staticFile.replace("src", "dist");
+		await Bun.write(dest, Bun.file(staticFile));
 	}
+};
+
+const buildTailwind = async () => {
+	Bun.spawn(["bun", "run", "tailwindcss", "-i", "src/css/popup.css", "-o", "dist/css/popup.css"]);
 };
 
 /** 指定されたエントリーポイントに対してビルドを行います。 */
 const build = async (entryPoint: string[]) => {
 	const result = await Bun.build({
 		entrypoints: entryPoint,
-		outdir: DIST,
-		root: SRC,
+		outdir: "dist",
+		root: "src",
 		splitting: false,
 		sourcemap: "external",
 		minify: false,
@@ -58,14 +58,15 @@ const buildAll = async (entryPoints: string[]) => {
 const watchAndBuild = async (entryPoints: string[]) => {
 	console.log("Watching for changes...");
 
-	const srcWatcher = watch(`${import.meta.dir}/${SRC}`, { recursive: true }, async (_event, filename) => {
+	const srcWatcher = watch(`${import.meta.dir}/src`, { recursive: true }, async (_event, filename) => {
 		if (!filename) return;
 		if (filename.endsWith("~")) return; // temporary backup files
 
-		console.log(`File changed: "${join(import.meta.dir, SRC, filename)}". Rebuilding...`);
+		console.log(`File changed: "${join("src", filename)}". Rebuilding...`);
 
-		await cleanUp(DIST);
+		cleanUp();
 		await copyStaticFiles();
+		await buildTailwind();
 		await build(entryPoints);
 	});
 
@@ -93,10 +94,12 @@ const {
 
 const main = async () => {
 	/** すべてのエントリーポイント */
-	const entryPoints = Array.from(new Glob(`${SRC}/index.ts`).scanSync());
+	// const entryPoints = Array.from(new Glob(`${SRC}/*.ts`).scanSync());
+	const entryPoints = ["src/index.ts", "src/popup.tsx", "src/options.ts"];
 
-	await cleanUp(DIST);
+	cleanUp();
 	await copyStaticFiles();
+	await buildTailwind();
 
 	if (watchMode) {
 		await build(entryPoints);
