@@ -1,9 +1,9 @@
 import { type Article, NKM, type NextPage } from "./constants.ts";
-import { func01, func02, func03, func04, func05, func06, func07, func08 } from "./sequencers.ts";
+// import { func01, func02, func03, func04, func05, func06, func07, func08 } from "./sequencers.ts";
 import {
-	chromeStorage,
 	constructUrl,
 	getAvailableDates,
+	getAvailableDatesFromStorage,
 	getAvailableMedia,
 	getCurrentMediaCode,
 	getLinkTo,
@@ -15,6 +15,7 @@ import {
 	isOnHonbunPage,
 	isOnLicensePage,
 	isOnSokuhouPage,
+	localStorageApi,
 	today,
 } from "./utils.ts";
 
@@ -22,142 +23,69 @@ import {
 // Main Functions
 // ----------------------------------------
 
-const getInfoForCheckedArticles = async (autopilot: boolean) => {
-	const listItems = autopilot
-		? document.querySelectorAll<HTMLLIElement>("li.headlineTwoToneA:not(:has(p a))") // 本文が公開されていない記事を除外する
-		: document.querySelectorAll<HTMLLIElement>("li.headlineTwoToneA:has(:checked)"); // 主導でチェックを入れた記事のみを対象にする
-	return collectMetadata(Array.from(listItems));
-};
-
 const filterHeadlines = async () => {
-	const metadata = await getInfoForCheckedArticles(true);
-
-	const filteredArticles = metadata
-		.filter(({ genre }) => !/^(詩歌・教養|スポーツ|マーケットデータ|マーケット商品|投資情報|お知らせ)$/.test(genre))
-		.filter(
-			({ title }) =>
-				!/^＜数表＞|（(格付け|死去|会社人事|人事|新社長|立会外分売|首相官邸|選挙|金利|為替|通貨番付|春秋)）$/.test(
-					title,
-				),
-		)
-		.filter(({ genre, chars }) => !(genre === "マーケット総合" && chars < 300))
-		.filter(({ chars }) => chars > 200);
-
-	for (const { checkbox } of metadata) {
-		checkbox.checked = true;
-	}
-
-	await chromeStorage.set({ articles: filteredArticles });
-	getSubmitButton()?.removeAttribute("disabled");
+	return collectMetadataFromHeadlinePage();
+	// .filter(
+	// 	({ title }) =>
+	// 		!/^＜数表＞|（(格付け|死去|会社人事|人事|新社長|立会外分売|首相官邸|選挙|金利|為替|通貨番付|春秋)）$/.test(
+	// 			title,
+	// 		),
+	// )
+	// .filter(({ chars }) => chars > 200);
 };
 
-const collectMetadata = (listItems: HTMLLIElement[]) => {
-	return listItems.map((item) => {
-		const title = item.querySelector(":scope div.col > p > a")?.textContent ?? "";
+const composeMetadata = (element: HTMLElement | null): Omit<Article, "title" | "text"> => {
+	const [date, newspaper, newspaper2, pageAndChars, chars] = (element?.textContent ?? "").trim().split(/\s+/);
 
-		const genre = item.parentElement?.previousElementSibling?.textContent ?? "";
-
-		// const checkbox = item.querySelector<HTMLInputElement>(":scope input");
-
-		const element = item.querySelector<HTMLLIElement>(":scope div.col ul li");
-		const text = (element?.textContent ?? "")
-			.trim()
-			.replace(/(?<=新聞)　/, "_")
-			.replace(/\s+/g, " ")
-			.replace(
-				/(20\d\d\/\d+\/\d+) ([^ ]+) *(?:[^ ]+)? (\d+)ページ *(絵写表有)?(\d+)文字 *(PDF有)?/,
-				"$1,$2,$3,$4,$5,$6",
-			);
-		const [date, newspaper, page, has_image, chars, has_pdf] = text.split(",");
-
-		return {
-			title,
-			text: "",
-			genre,
-			date,
-			newspaper,
-			page: Number.parseInt(page),
-			has_image: !!has_image,
-			chars: Number.parseInt(chars),
-			has_pdf: !!has_pdf,
-			// checkbox,
-		} as Article;
-	});
+	const pageMatch = pageAndChars.match(/^\d+/) ?? ["0"];
+	const charMatch = pageAndChars.match(/^\d+/) ?? chars.match(/\d+(?=文字)/) ?? ["0"];
+	return {
+		date: new Date(date),
+		newspaper: `${newspaper} ${newspaper2}`,
+		page: Number.parseInt(pageMatch[0]),
+		chars: Number.parseInt(charMatch[0]),
+	};
 };
 
-const honbun = async () => {
-	const content = Array.from(document.querySelectorAll("section.section > form") as NodeListOf<HTMLFormElement>).map(
-		(item) => ({
-			title: (item.querySelector("h2") as HTMLHeadingElement).textContent,
-			text: (item.querySelector(":scope .Honbun p") as HTMLParagraphElement).innerHTML,
-		}),
+const collectMetadata = (): Article[] => {
+	const titles = Array.from(document.querySelectorAll<HTMLHeadingElement>("h2.title")).map(
+		(item) => item.textContent ?? "",
 	);
-
-	const infos = await chromeStorage.get("articles");
-	if (!infos) return [];
-
-	return infos
-		.map(
-			(item) =>
-				Object.assign(item, {
-					text: content.find(({ title }) => title === item.title)?.text || null,
-				}) as Article,
-		)
-		.filter((item) => item.text !== null)
-		.map(func01)
-		.map(func02)
-		.map(func03)
-		.map(func04)
-		.map(func05)
-		.map(func06)
-		.map(func07)
-		.map(func08);
-};
-
-const addCss = () => {
-	if (document.querySelector("#nikkei_explorer_styles")) return;
-
-	document.head.insertAdjacentHTML(
-		"beforeend",
-		`<style id="nikkei_explorer_styles">
-  #big_button {
-    display: block;
-    padding: 0.25em;
-    text-align: center;
-    font-size: 1.5em;
-    border: rgba(172, 63, 84, 0.5) solid 1px;
-    border-radius: 8px;
-    background: linear-gradient(-20deg, #ee9ca7, #ffdde1);
-    width: 70%;
-    margin: 1em auto 0;
-  }
-  </style>`,
+	const metadata = Array.from(document.querySelectorAll<HTMLParagraphElement>(".text.atc_txt01")).map((item) =>
+		composeMetadata(item),
 	);
+	const text = Array.from(document.querySelectorAll<HTMLDivElement>(".Honbun .col10")).map((item) =>
+		(item.textContent ?? "").trim(),
+	);
+	return titles.map((title, i) => Object.assign({ ...metadata[i], title, text: text[i] }, {}));
 };
 
-const addButtonToSaveArticle = async (infos: Article[]) => {
-	const blob = new Blob([JSON.stringify(infos, null, 2)], { type: "application/json" });
-	const url = URL.createObjectURL(blob);
+const collectMetadataFromHeadlinePage = (): (Omit<Article, "text"> & { checkbox: HTMLInputElement | null })[] => {
+	return Array.from(document.querySelectorAll<HTMLLIElement>("li.headlineTwoToneA:has(div.col p a)")).map((item) => ({
+		checkbox: item.querySelector<HTMLInputElement>(":scope input[type='checkbox']"),
+		title: item.querySelector(":scope div.col p a")?.textContent ?? "",
+		...composeMetadata(item.querySelector(":scope li.AttInfoBody")),
+	}));
+};
 
+// const honbun = async (infos: Article[]): Promise<Article[]> => {
+// 	return infos.map(func01).map(func02).map(func03).map(func04).map(func05).map(func06).map(func07).map(func08);
+// };
+
+const makeFileName = async (infos: Article[]) => {
+	const date = infos[0].date
+		.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" })
+		.replace(/\//g, "-");
+	const media = infos[0].newspaper;
+	return `Nikkei_${date}_${media}.json`;
+};
+
+const addButtonToSaveArticle = async (infos: Article[], url: string) => {
 	document
 		.querySelector<HTMLHeadingElement>("h1")
 		?.insertAdjacentHTML("afterend", `<a href=${url} id="big_button">【記事を保存する】</a>`);
 	const bigButton = document.querySelector("#big_button") as HTMLAnchorElement;
-	const date = infos[0].date.replace(/\//g, "-");
-	const media = infos[0].newspaper;
-	bigButton.download = `#Nikkei_${date}_${media}.json`;
-	await chromeStorage.remove("articles");
-};
-
-const addButtonToFilterTitles = () => {
-	document
-		.querySelector<HTMLHeadingElement>("h1")
-		?.insertAdjacentHTML("afterend", `<button id="big_button">【記事を選別する】</button>`);
-	document.addEventListener("click", async (e) => {
-		if ((e.target as HTMLElement).closest("#big_button")) {
-			await filterHeadlines();
-		}
-	});
+	bigButton.download = await makeFileName(infos);
 };
 
 const setDocumentTitle = (text: string) => {
@@ -167,8 +95,8 @@ const setDocumentTitle = (text: string) => {
 const onProcessFinished = async () => {
 	// すべての媒体の巡回が終わったら
 	setDocumentTitle("日経DL:Finished!");
-	await chromeStorage.remove("availableMedia");
-	await chromeStorage.remove("availableDates");
+	localStorageApi.remove("availableMedia");
+	localStorageApi.remove("availableDates");
 	// setTimeout(() => window.close(), 3 * 1000); // 3秒後に閉じる
 };
 
@@ -182,28 +110,19 @@ const getNextPage = async (): Promise<NextPage> => {
 		};
 	}
 
-	const availableDates = await chromeStorage.get("availableDates");
-	if (!availableDates) {
-		throw new Error("利用可能な日付が取得できませんでした。");
-	}
-
-	// const nextDateElement = document.breadcrumbsForm.querySelector<HTMLAnchorElement>(":scope a:nth-of-type(3)");
-	// if (!nextDateElement) {
-	// 	throw Error("日付が見つかりませんでした。");
-	// }
-	// const currentDate = new Date(nextDateElement.text.replace(/（(.+?)）.+/, "$1"));
+	const availableDates = getAvailableDatesFromStorage();
 
 	const currentMedia = getCurrentMediaCode();
 	const availableDatesForTheMedia = availableDates[currentMedia];
 	if (availableDatesForTheMedia[0]) {
 		// その媒体の未取得の日付がある
-		await chromeStorage.set({
+		localStorageApi.set({
 			availableDates: { ...availableDates, [currentMedia]: availableDatesForTheMedia.slice(1) },
 		});
 		return {
 			href: constructUrl({ mediaCode: currentMedia, hiduke: availableDatesForTheMedia[0] }),
 			mediaCode: currentMedia,
-			date: availableDatesForTheMedia[0],
+			date: new Date(availableDatesForTheMedia[0]),
 		};
 	}
 
@@ -215,7 +134,7 @@ const getNextPage = async (): Promise<NextPage> => {
 		return {
 			href: nextUrl,
 			mediaCode: nextMediaCode,
-			date: availableDates[nextMediaCode][0] ?? today(),
+			date: new Date(availableDates[nextMediaCode][0]) ?? today(),
 		};
 	}
 
@@ -224,41 +143,49 @@ const getNextPage = async (): Promise<NextPage> => {
 
 /** 見出しページ */
 const whenOnHeadlinePage = async (autopilot: boolean) => {
-	addCss();
-	addButtonToFilterTitles();
 	if (!autopilot) {
-		getSubmitButton()?.addEventListener("click", async () => {
-			const infos = await getInfoForCheckedArticles(false);
-			await chromeStorage.set({ articles: infos });
-		});
 		return;
 	}
 
 	// 前回の実行から一定時間が経過していたら、今回の実行時刻を保存する
 	if (await isIntervalExpired({ thresholdMs: 1 })) {
-		await chromeStorage.set({
+		localStorageApi.set({
 			timestamp: new Date().getTime(),
 			availableMedia: getAvailableMedia(),
-			availableDates: await getAvailableDates(),
+			availableDates: getAvailableDates(),
 		});
 	}
 
 	// 見出しを選別する
-	await filterHeadlines();
+	const metadata = await filterHeadlines();
+	if (metadata.length === 0) {
+		console.info("適切な見出しが見つかりませんでした。");
+		await onProcessFinished();
+		return;
+	}
+
+	for (const { checkbox } of metadata) {
+		(checkbox as HTMLInputElement).checked = true;
+	}
 	// 「本文を表示」ボタンをクリック
-	(document.f1 as HTMLFormElement).submit();
+	getSubmitButton()?.removeAttribute("disabled");
+	// getSubmitButton()?.click();
 };
 
 /** 本文ページ */
 const whenOnHonbunPage = async (autopilot: boolean) => {
-	await addButtonToSaveArticle(await honbun());
+	const infos = collectMetadata();
+	const blob = new Blob([JSON.stringify(infos, null, 2)], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	await addButtonToSaveArticle(infos, url);
 	if (!autopilot) return;
 
-	document.querySelector<HTMLLIElement>("#big_button")?.click();
+	// document.querySelector<HTMLLIElement>("#big_button")?.click();
 
 	const { href } = await getNextPage();
 	if (href) {
-		window.location.href = href;
+		// window.location.href = href;
+		document.body.insertAdjacentHTML("afterbegin", `<a href=${href}>${href}</a>`);
 		return;
 	}
 
@@ -276,7 +203,7 @@ const whenOnSokuhouPage = () => {
 };
 
 (async () => {
-	const autopilot = await chromeStorage.get("autopilot");
+	const autopilot = localStorageApi.get("autopilot") ?? true;
 
 	if (isOnLicensePage()) return whenOnLicensePage(); // 利用規約ページ
 	if (isOnSokuhouPage()) return whenOnSokuhouPage();

@@ -1,41 +1,28 @@
 export type Article = {
 	title: string;
 	text: string;
-	genre: string;
-	date: string;
-	newspaper: string;
-	page: number;
-	has_image: boolean;
-	chars: number;
-	has_pdf: boolean;
-	checkbox: HTMLInputElement;
-};
-
-export type Article2 = {
-	title: string;
-	text: string;
 	date: Date;
 	newspaper: string;
 	page: number;
 	chars: number;
-	has_pdf: boolean;
 };
 
 export type ChromeStorageData = {
 	autopilot?: boolean;
-	articles?: Article[];
 	timestamp?: number;
 	availableMedia?: MediaCodeNames[];
-	availableDates?: Record<MediaCodeNames, Date[]>;
+	availableDates?: Record<MediaCodeNames, string[]>;
 };
 
-export type chromeStorageKeys = keyof ChromeStorageData;
+export type ChromeStorageKeys = keyof ChromeStorageData;
 
 export const NKM = "NKM"; // 日経朝刊
 export const NKE = "NKE"; // 日経夕刊
 export const NSS = "NSS"; // 日経産業新聞
 export const NKP = "NKP"; // 日経プラスワン
-export const supportedMediaCodes = [NKM, NKE, NSS, NKP] as const;
+export const NRS = "NRS"; // 日経MJ (流通新聞)
+export const NKL = "NKL"; // 日経地方経済面
+export const supportedMediaCodes = [NKM, NKE, NSS, NKP, NRS, NKL] as const;
 export type MediaCodeNames = (typeof supportedMediaCodes)[number];
 
 export type NextPage = {

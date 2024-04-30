@@ -8,7 +8,7 @@ import type { Article } from "./constants.ts";
 const zen2han = (str: string) => str.replace(/[\uff01-\uff5d]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0));
 export const func01 = (item: Article) =>
 	Object.assign(item, {
-		genre: zen2han(item.genre),
+		// genre: zen2han(item.genre),
 		title: zen2han(item.title),
 		text: zen2han(item.text),
 	}) as Article;

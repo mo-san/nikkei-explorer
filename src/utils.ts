@@ -3,12 +3,12 @@
 // ----------------------------------------
 import {
 	type ChromeStorageData,
+	type ChromeStorageKeys,
 	type MediaCodeNames,
 	NKE,
 	NKM,
 	NKP,
 	NSS,
-	type chromeStorageKeys,
 	supportedMediaCodes,
 } from "./constants.ts";
 
@@ -54,25 +54,30 @@ export const getMediaCodeFromUrl = (link: string | HTMLAnchorElement | null) => 
 	return (link ?? document.URL).replace(/.*mediaCode=([A-Z]+).*/, "$1") as MediaCodeNames;
 };
 
-export const getCurrentMediaCode = () => {
+export const getCurrentMediaCode = (): MediaCodeNames => {
+	if (isOnHonbunPage()) {
+		return (document.querySelector<HTMLInputElement>(`input[name="mediaCode"]`) as HTMLInputElement)
+			.value as MediaCodeNames;
+	}
 	return getMediaCodeFromUrl(getCurrentMediaLink());
 };
 
-export const getAvailableDates = async (): Promise<Record<MediaCodeNames, Date[]>> => {
-	const availableDates = await chromeStorage.get("availableDates");
+export const getAvailableDates = (): Record<MediaCodeNames, string[]> => {
+	const availableDates = getAvailableDatesFromStorage();
+	const dateToString = (date: Date) =>
+		date.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" });
 
-	const otherDates = getOtherDayLinks();
-	return Array.from(otherDates).reduce(
-		(prev, link) => {
-			const mediaCode = getMediaCodeFromUrl(link.href);
-			// TODO 年が変わるケースの処理 (12/31 -> 1/1)
-			const newDate = new Date(link.text ?? "1/1");
-			return Object.assign(prev, {
-				[mediaCode]: [...prev[mediaCode], newDate],
-			});
-		},
-		availableDates as Record<MediaCodeNames, Date[]>,
-	);
+	const otherDates = Array.from(getOtherDayLinks());
+	return otherDates.reduce((prev, link) => {
+		const mediaCode = getMediaCodeFromUrl(link.href);
+		// TODO 年が変わるケースの処理 (12/31 -> 1/1)
+		const date = new Date(`${new Date().getFullYear()}/${link.text ?? "1/1"}`);
+		const stringifiedDates = [...(prev[mediaCode] ?? []), dateToString(date)];
+		const uniqueDateStrings = [...new Set(stringifiedDates)];
+		return Object.assign(prev, {
+			[mediaCode]: uniqueDateStrings,
+		});
+	}, availableDates);
 };
 
 export const formatDate = (date: Date) => {
@@ -83,10 +88,40 @@ export const formatDate = (date: Date) => {
 	return `${year}${month}${day}`;
 };
 
+export const getAvailableDatesFromStorage = () => {
+	// return convertStringDatesToDate(
+	// 	(localStorageApi.get("availableDates") ?? {}) as NonNullable<ChromeStorageData["availableDates"]>,
+	// );
+	return (localStorageApi.get("availableDates") ?? {}) as NonNullable<ChromeStorageData["availableDates"]>;
+};
+
+const convertStringDatesToDate = (input: Record<MediaCodeNames, string[]>): Record<MediaCodeNames, Date[]> => {
+	return Object.entries(input).reduce(
+		(output, [mediaCode, dateStrings]) => {
+			return Object.assign(output, {
+				[mediaCode]: dateStrings.map((dateString) => new Date(dateString)),
+			});
+		},
+		{} as Record<MediaCodeNames, Date[]>,
+	);
+};
+
 export const dateStringToDate = (dateString: string): Date => {
-	const year = new Date().getFullYear();
-	const [month, day] = dateString.split("/").map(Number);
-	return new Date(year, month - 1, day);
+	if (dateString.match(/^\d{4}-\d{2}-\d{2}/)) {
+		// ISO-8601 format
+		return new Date(dateString);
+	}
+	if (dateString.match(/^\d{4}\/\d{2}\/\d{2}/)) {
+		// yyyy/MM/dd format
+		return new Date(dateString.replace(/\//g, "-"));
+	}
+	if (dateString.match(/^\d{1,2}\/\d{1,2}/)) {
+		// MM/dd format
+		const year = new Date().getFullYear();
+		const [month, day] = dateString.split("/").map(Number);
+		return new Date(year, month - 1, day);
+	}
+	return new Date(dateString);
 };
 
 export const constructUrl = ({ mediaCode, hiduke }: { mediaCode: MediaCodeNames; hiduke?: Date | string }) => {
@@ -97,20 +132,37 @@ export const constructUrl = ({ mediaCode, hiduke }: { mediaCode: MediaCodeNames;
 	return url.toString();
 };
 
-export const chromeStorage = {
-	get: async <T extends chromeStorageKeys>(key: T): Promise<ChromeStorageData[T]> => {
-		const data = await chrome.storage.local.get(key);
-		return data[key];
+// export const chromeStorage = {
+// 	get: async <T extends ChromeStorageKeys>(key: T): Promise<ChromeStorageData[T]> => {
+// 		const data = await chrome.storage.local.get(key);
+// 		return data[key];
+// 	},
+//
+// 	set: async (items: ChromeStorageData): Promise<void> => {
+// 		for (const [key, value] of Object.entries(items)) {
+// 			await chrome.storage.local.set({ [key]: value });
+// 		}
+// 	},
+//
+// 	remove: async (key: ChromeStorageKeys): Promise<void> => {
+// 		await chrome.storage.local.remove(key);
+// 	},
+// };
+
+export const localStorageApi = {
+	get: <T extends ChromeStorageKeys>(key: T): ChromeStorageData[T] => {
+		const item = localStorage.getItem(key);
+		return item ? JSON.parse(item) : null;
 	},
 
-	set: async (items: ChromeStorageData): Promise<void> => {
+	set: <T extends ChromeStorageKeys>(items: ChromeStorageData): void => {
 		for (const [key, value] of Object.entries(items)) {
-			await chrome.storage.local.set({ [key]: value });
+			localStorage.setItem(key, JSON.stringify(value));
 		}
 	},
 
-	remove: async (key: chromeStorageKeys): Promise<void> => {
-		await chrome.storage.local.remove(key);
+	remove: <T extends ChromeStorageKeys>(key: T): void => {
+		localStorage.removeItem(key);
 	},
 };
 
@@ -148,10 +200,8 @@ export const isMediaAccesible = (code: MediaCodeNames) => {
 
 export const isCurrentBaitaiWellKnown = () => {
 	const mediaRegex = new RegExp(supportedMediaCodes.join("|"));
-	const baitaiCurrent = getCurrentMediaLink();
-	if (!baitaiCurrent) return false;
-
-	return mediaRegex.test(baitaiCurrent.href);
+	const baitaiCurrent = getCurrentMediaCode();
+	return mediaRegex.test(baitaiCurrent);
 };
 
 export const getLinkTo = (mediaCode: MediaCodeNames) => {
@@ -187,13 +237,13 @@ export const isThisDateAvailable = (hidukeToFind: Date): [false, null] | [true, 
 };
 
 export const isIntervalExpired = async ({ thresholdMs = 1 }: { thresholdMs: number }) => {
-	const timestamp = (await chromeStorage.get("timestamp")) ?? 0;
+	const timestamp = localStorageApi.get("timestamp") ?? 0;
 	const now = new Date().getTime();
 	return thresholdMs < (now - timestamp) / 1000 / 60;
 };
 
 export const getNextMediaOf = async (currentMedia: MediaCodeNames): Promise<MediaCodeNames | undefined> => {
-	const availableMedia = await chromeStorage.get("availableMedia");
+	const availableMedia = localStorageApi.get("availableMedia");
 	if (!availableMedia) return;
 
 	const index = availableMedia.indexOf(currentMedia);
