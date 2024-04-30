@@ -55,29 +55,30 @@ export const getMediaCodeFromUrl = (link: string | HTMLAnchorElement | null) => 
 };
 
 export const getCurrentMediaCode = (): MediaCodeNames => {
-	if (isOnHonbunPage()) {
-		return (document.querySelector<HTMLInputElement>(`input[name="mediaCode"]`) as HTMLInputElement)
-			.value as MediaCodeNames;
+	if (isOnHeadlinePage()) {
+		return getMediaCodeFromUrl(getCurrentMediaLink());
 	}
-	return getMediaCodeFromUrl(getCurrentMediaLink());
+	return (document.querySelector(`input[name="mediaCode"]`) as HTMLInputElement).value as MediaCodeNames;
 };
 
 export const getAvailableDates = (): Record<MediaCodeNames, string[]> => {
-	const availableDates = getAvailableDatesFromStorage();
 	const dateToString = (date: Date) =>
 		date.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" });
 
 	const otherDates = Array.from(getOtherDayLinks());
-	return otherDates.reduce((prev, link) => {
-		const mediaCode = getMediaCodeFromUrl(link.href);
-		// TODO 年が変わるケースの処理 (12/31 -> 1/1)
-		const date = new Date(`${new Date().getFullYear()}/${link.text ?? "1/1"}`);
-		const stringifiedDates = [...(prev[mediaCode] ?? []), dateToString(date)];
-		const uniqueDateStrings = [...new Set(stringifiedDates)];
-		return Object.assign(prev, {
-			[mediaCode]: uniqueDateStrings,
-		});
-	}, availableDates);
+	return otherDates.reduce(
+		(prev, link) => {
+			const mediaCode = getMediaCodeFromUrl(link.href);
+			// TODO 年が変わるケースの処理 (12/31 -> 1/1)
+			const date = new Date(`${new Date().getFullYear()}/${link.text ?? "1/1"}`);
+			const stringifiedDates = [...(prev[mediaCode] ?? []), dateToString(date)];
+			const uniqueDateStrings = [...new Set(stringifiedDates)];
+			return Object.assign(prev, {
+				[mediaCode]: uniqueDateStrings,
+			});
+		},
+		{} as NonNullable<ChromeStorageData["availableDates"]>,
+	);
 };
 
 export const formatDate = (date: Date) => {
@@ -89,21 +90,7 @@ export const formatDate = (date: Date) => {
 };
 
 export const getAvailableDatesFromStorage = () => {
-	// return convertStringDatesToDate(
-	// 	(localStorageApi.get("availableDates") ?? {}) as NonNullable<ChromeStorageData["availableDates"]>,
-	// );
 	return (localStorageApi.get("availableDates") ?? {}) as NonNullable<ChromeStorageData["availableDates"]>;
-};
-
-const convertStringDatesToDate = (input: Record<MediaCodeNames, string[]>): Record<MediaCodeNames, Date[]> => {
-	return Object.entries(input).reduce(
-		(output, [mediaCode, dateStrings]) => {
-			return Object.assign(output, {
-				[mediaCode]: dateStrings.map((dateString) => new Date(dateString)),
-			});
-		},
-		{} as Record<MediaCodeNames, Date[]>,
-	);
 };
 
 export const dateStringToDate = (dateString: string): Date => {
@@ -126,9 +113,11 @@ export const dateStringToDate = (dateString: string): Date => {
 
 export const constructUrl = ({ mediaCode, hiduke }: { mediaCode: MediaCodeNames; hiduke?: Date | string }) => {
 	const url = new URL("https://t21.nikkei.co.jp/g3/p03/LATCB012.do");
-	const date = typeof hiduke === "string" ? dateStringToDate(hiduke) : hiduke ? hiduke : new Date();
 	url.searchParams.append("mediaCode", mediaCode);
-	url.searchParams.append("date", formatDate(date));
+	if (hiduke) {
+		const date = typeof hiduke === "string" ? dateStringToDate(hiduke) : hiduke;
+		url.searchParams.append("date", formatDate(date));
+	}
 	return url.toString();
 };
 
@@ -195,45 +184,13 @@ export const isMediaAccesible = (code: MediaCodeNames) => {
 	if (code === NKE) {
 		return today().getHours() !== 5; // TODO: 未検証
 	}
-	return false;
+	return true;
 };
 
 export const isCurrentBaitaiWellKnown = () => {
 	const mediaRegex = new RegExp(supportedMediaCodes.join("|"));
 	const baitaiCurrent = getCurrentMediaCode();
 	return mediaRegex.test(baitaiCurrent);
-};
-
-export const getLinkTo = (mediaCode: MediaCodeNames) => {
-	// 媒体の一覧表がない場合は、本日の日付のページに進む
-	if (document.querySelectorAll("#subcategory2").length === 0) {
-		return constructUrl({ mediaCode: mediaCode, hiduke: today() });
-	}
-
-	const otherMedia = getOtherMediaLinks();
-	const mediaWithCode = Array.from(otherMedia).filter((a) => new RegExp(`mediaCode=${mediaCode}`).test(a.href));
-	if (mediaWithCode.length === 0) return;
-	return mediaWithCode[0].href;
-};
-
-export const testCurrentHiduke = (hidukeToFind: Date) => {
-	// 一桁の日付はページで「1/01」のように表示される
-	const current = getTodayLink();
-	if (!current) return false;
-
-	const hidukeThisPage = new Date(current.text);
-	return hidukeThisPage.getDate() === hidukeToFind.getDate();
-};
-
-export const isThisDateAvailable = (hidukeToFind: Date): [false, null] | [true, string] => {
-	const otherDateLinks = getOtherDayLinks();
-	if (!otherDateLinks) return [false, null];
-
-	const hidukeOthers = Array.from(otherDateLinks).filter((a) => new Date(a.text).getDate() === hidukeToFind.getDate());
-	if (hidukeOthers.length > 0) {
-		return [true, hidukeOthers[0].href];
-	}
-	return [false, null];
 };
 
 export const isIntervalExpired = async ({ thresholdMs = 1 }: { thresholdMs: number }) => {

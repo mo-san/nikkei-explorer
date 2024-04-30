@@ -1,12 +1,10 @@
 import { type Article, NKM, type NextPage } from "./constants.ts";
-// import { func01, func02, func03, func04, func05, func06, func07, func08 } from "./sequencers.ts";
 import {
 	constructUrl,
 	getAvailableDates,
 	getAvailableDatesFromStorage,
 	getAvailableMedia,
 	getCurrentMediaCode,
-	getLinkTo,
 	getNextMediaOf,
 	getSubmitButton,
 	isCurrentBaitaiWellKnown,
@@ -35,13 +33,14 @@ const filterHeadlines = async () => {
 };
 
 const composeMetadata = (element: HTMLElement | null): Omit<Article, "title" | "text"> => {
-	const [date, newspaper, newspaper2, pageAndChars, chars] = (element?.textContent ?? "").trim().split(/\s+/);
+	const text = (element?.textContent ?? "").trim().replace("　", "_");
+	const [date, newspaper, pageAndChars, chars] = text.split(/\s+/);
 
 	const pageMatch = pageAndChars.match(/^\d+/) ?? ["0"];
-	const charMatch = pageAndChars.match(/^\d+/) ?? chars.match(/\d+(?=文字)/) ?? ["0"];
+	const charMatch = pageAndChars.match(/^\d+/) ?? chars?.match(/\d+(?=文字)/) ?? ["0"];
 	return {
 		date: new Date(date),
-		newspaper: `${newspaper} ${newspaper2}`,
+		newspaper: newspaper.replace("_", " "),
 		page: Number.parseInt(pageMatch[0]),
 		chars: Number.parseInt(charMatch[0]),
 	};
@@ -104,9 +103,8 @@ const getNextPage = async (): Promise<NextPage> => {
 	// 媒体が未知の場合は、日経朝刊のページに進む
 	if (!isCurrentBaitaiWellKnown()) {
 		return {
-			href: getLinkTo(NKM),
+			href: constructUrl({ mediaCode: NKM }),
 			mediaCode: NKM,
-			date: today(),
 		};
 	}
 
@@ -114,7 +112,7 @@ const getNextPage = async (): Promise<NextPage> => {
 
 	const currentMedia = getCurrentMediaCode();
 	const availableDatesForTheMedia = availableDates[currentMedia];
-	if (availableDatesForTheMedia[0]) {
+	if (availableDatesForTheMedia?.[0]) {
 		// その媒体の未取得の日付がある
 		localStorageApi.set({
 			availableDates: { ...availableDates, [currentMedia]: availableDatesForTheMedia.slice(1) },
@@ -130,11 +128,10 @@ const getNextPage = async (): Promise<NextPage> => {
 
 	const nextMediaCode = await getNextMediaOf(currentMedia);
 	if (nextMediaCode) {
-		const nextUrl = nextMediaCode ? getLinkTo(nextMediaCode) : undefined;
+		const nextUrl = constructUrl({ mediaCode: nextMediaCode });
 		return {
 			href: nextUrl,
 			mediaCode: nextMediaCode,
-			date: new Date(availableDates[nextMediaCode][0]) ?? today(),
 		};
 	}
 
@@ -143,15 +140,22 @@ const getNextPage = async (): Promise<NextPage> => {
 
 /** 見出しページ */
 const whenOnHeadlinePage = async (autopilot: boolean) => {
-	if (!autopilot) {
-		return;
-	}
-
 	// 前回の実行から一定時間が経過していたら、今回の実行時刻を保存する
-	if (await isIntervalExpired({ thresholdMs: 1 })) {
+	if (await isIntervalExpired({ thresholdMs: 1000 * 60 * 60 * 4 })) {
 		localStorageApi.set({
 			timestamp: new Date().getTime(),
+		});
+	}
+	const availableMedia = localStorageApi.get("availableMedia");
+	if ((availableMedia ?? []).length === 0) {
+		localStorageApi.set({
 			availableMedia: getAvailableMedia(),
+		});
+	}
+	const currentMediaCode = getCurrentMediaCode();
+	const availableDates = localStorageApi.get("availableDates");
+	if (!availableDates || !availableDates[currentMediaCode]) {
+		localStorageApi.set({
 			availableDates: getAvailableDates(),
 		});
 	}
@@ -167,9 +171,11 @@ const whenOnHeadlinePage = async (autopilot: boolean) => {
 	for (const { checkbox } of metadata) {
 		(checkbox as HTMLInputElement).checked = true;
 	}
-	// 「本文を表示」ボタンをクリック
 	getSubmitButton()?.removeAttribute("disabled");
-	// getSubmitButton()?.click();
+	if (autopilot) {
+		// 「本文を表示」ボタンをクリック
+		getSubmitButton()?.click();
+	}
 };
 
 /** 本文ページ */
@@ -178,14 +184,19 @@ const whenOnHonbunPage = async (autopilot: boolean) => {
 	const blob = new Blob([JSON.stringify(infos, null, 2)], { type: "application/json" });
 	const url = URL.createObjectURL(blob);
 	await addButtonToSaveArticle(infos, url);
-	if (!autopilot) return;
-
-	// document.querySelector<HTMLLIElement>("#big_button")?.click();
-
 	const { href } = await getNextPage();
+	if (!autopilot) {
+		if (href) {
+			document.body.insertAdjacentHTML("afterbegin", `<a href="${href}">${href}</a>`);
+		}
+		return;
+	}
+
+	// 保存ボタンをクリック
+	document.querySelector<HTMLLIElement>("#big_button")?.click();
+
 	if (href) {
-		// window.location.href = href;
-		document.body.insertAdjacentHTML("afterbegin", `<a href=${href}>${href}</a>`);
+		window.location.href = href;
 		return;
 	}
 
@@ -203,10 +214,10 @@ const whenOnSokuhouPage = () => {
 };
 
 (async () => {
-	const autopilot = localStorageApi.get("autopilot") ?? true;
+	const autopilot = localStorageApi.get("autopilot") ?? false;
 
 	if (isOnLicensePage()) return whenOnLicensePage(); // 利用規約ページ
 	if (isOnSokuhouPage()) return whenOnSokuhouPage();
-	if (isOnHeadlinePage()) return await whenOnHeadlinePage(autopilot || false);
-	if (isOnHonbunPage()) return await whenOnHonbunPage(autopilot || false);
+	if (isOnHeadlinePage()) return await whenOnHeadlinePage(autopilot);
+	if (isOnHonbunPage()) return await whenOnHonbunPage(autopilot);
 })();
