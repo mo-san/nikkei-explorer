@@ -3,16 +3,14 @@
 @tailwind utilities;
 
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
-body {
-  width: 1000px;
-  height: 800px;
-}
-
-#result {
-  white-space: pre-wrap;
+#root {
+    display: flex;
+    place-content: center;
+    width: 400px;
+    height: 400px;
 }
