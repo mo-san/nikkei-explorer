@@ -1,5 +1,4 @@
 import { rmSync, watch } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { Glob } from "bun";
@@ -13,14 +12,10 @@ const cleanUp = async (dist: string) => {
 	// 出力先ディレクトリが存在しない場合は何もしない
 	if (!(await Bun.file(dist).exists())) return;
 
-	console.log("Cleaning up the dist directory...");
 	rmSync(dist, { recursive: true, force: true });
-	await mkdir(DIST, { recursive: true });
 };
 
 const copyStaticFiles = async () => {
-	console.log("Copying static files...");
-
 	const staticFiles = Array.from(new Glob(`${SRC}/*.{json,html,css}`).scanSync());
 	for (const staticFile of staticFiles) {
 		const path = staticFile.replace(SRC, DIST);
@@ -46,7 +41,6 @@ const build = async (entryPoint: string[]) => {
 		}
 	}
 
-	console.info("Successfully built:", entryPoint);
 	return result;
 };
 
@@ -70,6 +64,8 @@ const watchAndBuild = async (entryPoints: string[]) => {
 
 		console.log(`File changed: "${join(import.meta.dir, SRC, filename)}". Rebuilding...`);
 
+		await cleanUp(DIST);
+		await copyStaticFiles();
 		await build(entryPoints);
 	});
 
